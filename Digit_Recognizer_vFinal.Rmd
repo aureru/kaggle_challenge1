@@ -1,0 +1,366 @@
+---
+title: "Digit Recognizer challenge CNN with Keras"
+author: "Aurel Pasztor"
+date: "26/06/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+I have entered the Digit Recognizer Challenge because I wanted to work on image recognition and enter a competition with many contestants.
+
+```{r}
+library(keras)
+setwd("/Users/apasztor/Documents/R/Kaggle/Competitions/Digit_Recognizer/input")
+train_v0 <- data.matrix(read.csv("../input/train.csv", header=T))
+test <- data.matrix(read.csv("../input/test.csv", header=T))
+```
+
+First I have created a validation set from the train set to be able to assess model performance without needing to submit predictions on Kaggle for every model. My goal was to place in the 1sth quarter on the leaderboard!
+
+```{r}
+set.seed(123)
+n_train <- round(0.8*nrow(train_v0)) 
+index_train <- sample(seq_len(nrow(train_v0)), size = n_train)
+train <- train_v0[index_train,]
+validation <- train_v0[-index_train,]
+```
+
+In this competition the MNIST dataset came in a different format to what it is included in the Keras package, preprocessing was needed.
+
+```{r}
+train.label<-train[,1] %>% to_categorical()
+validation.label<-validation[,1] %>% to_categorical()
+
+train.feature<-train[,-1] %>% normalize()
+validation.feature<-validation[,-1] %>% normalize()
+
+test.feature<-test %>% normalize()
+
+train_images1 <- array_reshape(train.feature, c(nrow(train.feature), 28 * 28))
+validation_images1 <- array_reshape(validation.feature, c(nrow(validation.feature), 28 * 28))
+test_images1 <- array_reshape(test.feature, c(nrow(test.feature), 28 * 28))
+```
+
+Here, images are in a 2D tensor of integers. More precisely, it’s an array of 33,600 matrices of 28 × 28 integers for training, 8,400 for validating and 28,000 for testing. Each such matrix is a grayscale image (has only one chanell), with coefficients between 0 and 255.
+
+```{r}
+length(dim(train_images1))
+dim(train_images1)
+dim(validation_images1)
+dim(test_images1)
+typeof(train_images1)
+```
+
+I have built two basic network architectures starting from simple NNs without hidden layers. For compilation I used the same optimizer and loss function.
+
+```{r}
+model_01 <- keras_model_sequential() %>%
+  layer_dense(units = 128, activation = "relu", input_shape = c(28 * 28)) %>%
+  layer_dense(units = 10, activation = "softmax")
+
+model_01 %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+model_02<-keras_model_sequential() %>% 
+  layer_dense(units=512,activation='relu',input_shape=c(28 * 28))%>%
+  layer_dense(units=10,activation='softmax')
+
+model_02 %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+Prepairing image data
+
+```{r}
+train_labels <- train[,1] %>% to_categorical()
+validation_labels <- validation[,1] %>% to_categorical()
+```
+
+For the initial trainings I have chosen 12 epochs.
+
+```{r}
+epochs = 12
+```
+
+This simple network runs very fast even on a laptop and provides fairly good results (0.96 accuracy on the validation set).
+
+```{r}
+model_01 %>% fit(train_images1, train_labels, epochs = epochs, batch_size = 128)
+eval_01 <- evaluate(model_01, validation_images1, validation_labels, batch_size = 128)
+eval_01
+```
+
+The layer with the higher units performs worse (0.95 accuracy on the validation set).
+
+```{r}
+model_02 %>% fit(train_images1, train_labels, epochs = epochs, batch_size = 128)
+eval_02 <- evaluate(model_02, validation_images1, validation_labels, batch_size = 128)
+eval_02
+```
+
+Let's build a CNN!
+
+First I have converted the data into a 3D tensor of integers.
+
+```{r}
+dim(train_images1)<-c(nrow(train.feature),28,28,1)
+dim(validation_images1)<-c(nrow(validation.feature),28,28,1)
+dim(test_images1)<-c(nrow(test.feature),28,28,1)
+```
+
+I have started with two convolutional layers and kept the kernel size small, then added a pooling layer and a fully connected dense layer with 128 units. 
+
+```{r}
+model_03 <- keras_model_sequential() 
+
+model_03%>%
+  layer_conv_2d(filters = 32, kernel_size = c(3,3), activation = 'relu',
+                input_shape = c(28, 28 , 1)) %>% 
+  layer_conv_2d(filters = 64, kernel_size = c(3,3), activation = 'relu') %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>%
+  
+  layer_flatten() %>% 
+  layer_dense(units = 128, activation = 'relu') %>% 
+  layer_dropout(rate = 0.5) %>% 
+  layer_dense(units = 10, activation = 'softmax')
+
+model_03 %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+This model performed very well, achieving 0.988 accuracy on the validation set.
+
+```{r}
+model_03 %>% fit(train_images1, train_labels, epochs = epochs, batch_size = 128)
+```
+
+```{r}
+eval_03 <- evaluate(model_03, validation_images1, validation_labels, batch_size = 128)
+eval_03
+```
+
+To try more complex CNN structures, I have added several convolutional, pooling and dense layers and increased the number of epochs.
+
+```{r}
+model_04 <-keras_model_sequential()
+
+model_04 %>% 
+  layer_conv_2d(filters = 32, kernel_size = c(3,3), activation = 'relu', input_shape = c(28,28,1))%>%
+  layer_conv_2d(filters = 64, kernel_size = c(3,3), activation = 'relu')%>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>% 
+  
+  layer_conv_2d(filters = 64, kernel_size = c(3,3),padding = 'Same', activation = 'relu')%>%
+  layer_batch_normalization()%>%
+  layer_conv_2d(filters = 64, kernel_size = c(3,3),padding = 'Same', activation = 'relu')%>%
+  layer_batch_normalization()%>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>%
+  
+  layer_flatten() %>%
+  layer_dense(units=512,activation='relu')%>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units=256,activation='relu')%>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units=10,activation='softmax')
+
+model_04 %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+model_04 %>% fit(train_images1, train_labels, epochs = 50, batch_size = 128, callbacks = callback_early_stopping(patience = 5, monitor = 'acc'))
+```
+
+Performace has improved: I have reached 0.989 accuracy on the validation set.
+
+```{r}
+eval_04 <- evaluate(model_04, validation_images1, validation_labels, batch_size = 128)
+eval_04
+```
+
+To experiment with the number of epochs and complexity, I have reduced both. 
+
+```{r}
+model_05 <-keras_model_sequential()
+
+model_05 %>% 
+  layer_conv_2d(filters = 32, kernel_size = c(3,3), activation = 'relu', input_shape = c(28,28,1))%>%
+  layer_conv_2d(filters = 64, kernel_size = c(3,3), activation = 'relu')%>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>%
+  
+  layer_flatten() %>%
+  layer_dense(units=256,activation='relu')%>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units=10,activation='softmax')
+
+model_05 %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+model_05 %>% fit(train_images1, train_labels, epochs = 12, batch_size = 128)
+```
+
+This computation was much faster to run and the models performance has only slightly  decreased. Accuracy:  0.9889 vs 0.9894 on the validation set.
+
+```{r}
+eval_05 <- evaluate(model_05, validation_images1, validation_labels, batch_size = 128)
+eval_05
+```
+
+Nevertheless, I am here to place in the first quarter on the leaderboard. For that I add more convolutional layers and increase the number of epochs. I use early stopping with patience: 5.
+
+```{r}
+model_06 <-keras_model_sequential()
+
+model_06 %>% 
+  layer_conv_2d(filters = 32, kernel_size = c(5,5), activation = 'relu', input_shape = c(28,28,1))%>%
+  layer_conv_2d(filters = 64, kernel_size = c(5,5), activation = 'relu')%>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>% 
+  
+  layer_conv_2d(filters = 64, kernel_size = c(3,3),padding = 'Same', activation = 'relu')%>%
+  layer_batch_normalization()%>%
+  layer_conv_2d(filters = 64, kernel_size = c(3,3),padding = 'Same', activation = 'relu')%>%
+  layer_batch_normalization()%>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>%
+  
+  layer_conv_2d(filters = 64, kernel_size = c(3,3),padding = 'Same', activation = 'relu')%>%
+  layer_batch_normalization()%>%
+  layer_conv_2d(filters = 64, kernel_size = c(3,3),padding = 'Same', activation = 'relu')%>%
+  layer_batch_normalization()%>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>%
+  
+  layer_flatten() %>%
+  layer_dense(units=512,activation='relu')%>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units=256,activation='relu')%>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units=10,activation='softmax')
+
+model_06 %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+model_06 %>% fit(train_images1, train_labels, epochs = 50, batch_size = 128, callbacks = callback_early_stopping(patience = 5, monitor = 'acc'))
+```
+
+This more complex model has produced even better, 0.994 accuracy on the validation set.
+
+```{r}
+eval_06 <- evaluate(model_06, validation_images1, validation_labels, batch_size = 128)
+eval_06
+```
+
+Model_06 is the best, let's train it on the full training set!
+
+```{r}
+setwd("/Users/apasztor/Documents/R/Kaggle/Competitions/Digit_Recognizer/input")
+train <- data.matrix(read.csv("../input/train.csv", header=T))
+test <- data.matrix(read.csv("../input/test.csv", header=T))
+```
+
+```{r}
+train.label<-train[,1] %>% to_categorical()
+
+train.feature<-train[,-1] %>% normalize()
+test.feature<-test %>% normalize()
+
+train_images1 <- array_reshape(train.feature, c(nrow(train.feature), 28 * 28))
+test_images1 <- array_reshape(test.feature, c(nrow(test.feature), 28 * 28))
+
+train_labels <- train[,1] %>% to_categorical()
+
+dim(train_images1)<-c(nrow(train.feature),28,28,1)
+dim(test_images1)<-c(nrow(test.feature),28,28,1)
+```
+
+To compare models on the full set, I have used the model_03 network structure first and achieved over 0.990 accuracy on the training set and 0.988 on the test set. This became the baseline model for my experiements further.
+
+Following that, I have used model_06 with 50 epochs and 5 patience, then have increased the number of epochs to 100 and patience to 10 to save time and not to overfit the model.
+
+```{r}
+model_final <-keras_model_sequential()
+
+model_final %>% 
+  layer_conv_2d(filters = 32, kernel_size = c(5,5), activation = 'relu', input_shape = c(28,28,1))%>%
+  layer_conv_2d(filters = 64, kernel_size = c(5,5), activation = 'relu')%>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>% 
+  
+  layer_conv_2d(filters = 64, kernel_size = c(3,3),padding = 'Same', activation = 'relu')%>%
+  layer_batch_normalization()%>%
+  layer_conv_2d(filters = 64, kernel_size = c(3,3),padding = 'Same', activation = 'relu')%>%
+  layer_batch_normalization()%>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>%
+  
+  layer_conv_2d(filters = 64, kernel_size = c(3,3),padding = 'Same', activation = 'relu')%>%
+  layer_batch_normalization()%>%
+  layer_conv_2d(filters = 64, kernel_size = c(3,3),padding = 'Same', activation = 'relu')%>%
+  layer_batch_normalization()%>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>%
+  
+  layer_flatten() %>%
+  layer_dense(units=512,activation='relu')%>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units=256,activation='relu')%>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units=10,activation='softmax')
+
+model_final %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+model_final %>% fit(train_images1, train_labels, epochs = 100, batch_size = 128, callbacks = callback_early_stopping(patience = 10, monitor = 'acc'))
+```
+
+I have reached accuracy 0.9954 on the full training set (stopped at epoch 69) which gave me an accuracy of 0.9938 in the challenge, that is place 575 out of 2788 that is in the 21st percentile!
+
+```{r}
+pred<- model_final %>% predict_classes(test_images1,batch_size=128)
+
+dnnsubmission<-data.frame(ImageId=1:nrow(test_images1),Label=pred)
+
+write.csv(dnnsubmission, file="dnnsubmissionFinal2.csv", row.names=F)
+```
+
+
+```{r}
+saveRDS(model_final, "modelFinal2.rds")
+```
+
