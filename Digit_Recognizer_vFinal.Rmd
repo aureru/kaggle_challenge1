@@ -356,11 +356,11 @@ pred<- model_final %>% predict_classes(test_images1,batch_size=128)
 
 dnnsubmission<-data.frame(ImageId=1:nrow(test_images1),Label=pred)
 
-write.csv(dnnsubmission, file="dnnsubmissionFinal2.csv", row.names=F)
+write.csv(dnnsubmission, file="dnnsubmissionFinal_AP.csv", row.names=F)
 ```
 
 
 ```{r}
-saveRDS(model_final, "modelFinal2.rds")
+saveRDS(model_final, "modelFinal_AP.rds")
 ```
 
